@@ -1078,8 +1078,7 @@ def dataset_stats(path='coco128.yaml', autodownload=False, verbose=False, profil
             im_dir = hub_dir / 'images'
             im_dir.mkdir(parents=True, exist_ok=True)
             for _ in tqdm(ThreadPool(NUM_THREADS).imap(hub_ops, dataset.img_files), total=dataset.n, desc='HUB Ops'):
-                pass
-
+                p
     # Profile
     stats_path = hub_dir / 'stats.json'
     if profile:
