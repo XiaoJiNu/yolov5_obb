@@ -132,25 +132,39 @@ class ComputeLoss:
         device = targets.device
         lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
         ltheta = torch.zeros(1, device=device)
+
         # tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
+
+        # ----- 1. 匹配gt boxes和anchors，得到匹配结果-----
+
+        # tbox: 匹配增加后的所有gt boxes的cx,cy对应的归一化的预测偏差目标值和未归一化的w,h值
+        # tcls：匹配增加后的所有gt boxes的目标类别
+        # indices: 匹配增加后的所有gt boxes对应的anchor在当前特征图中的索引，用于定位每个gt box在预测值中对应位置
+        # anchors：匹配增加后的所有gt boxes的对应anchor的w,h值
+        # tgaussian_theta：匹配增加后的所有gt boxes的角度标签
         tcls, tbox, indices, anchors, tgaussian_theta = self.build_targets(p, targets)  # targets
 
+        # ----- 2. 计算fpn每个层的loss -----
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
+            # 得到fpn第i层筛选增加的gt boxes对应的anchor在当前特征图中的索引
             b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
             tobj = torch.zeros_like(pi[..., 0], device=device)  # target obj
 
             n = b.shape[0]  # number of targets
             if n:
+                # ----- 2.1 得到第i层筛选增加的gt boxes对应的anchor的预测值 -----
                 ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets, (n_targets, self.no)
 
+                # ----- 2.2 计算回归损失函数，采用CIoU loss -----
                 # Regression
                 pxy = ps[:, :2].sigmoid() * 2 - 0.5
-                pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i] # featuremap pixel
+                pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]  # featuremap pixel
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
                 lbox += (1.0 - iou).mean()  # iou loss
 
+                # ----- 2.3 按照iou分数对所有anchor否存在目标的得分排序？？ -----
                 # Objectness
                 score_iou = iou.detach().clamp(0).type(tobj.dtype)
                 if self.sort_obj_iou:
@@ -158,6 +172,7 @@ class ComputeLoss:
                     b, a, gj, gi, score_iou = b[sort_id], a[sort_id], gj[sort_id], gi[sort_id], score_iou[sort_id]
                 tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * score_iou  # iou ratio
 
+                # ----- 2.4 计算类别分类损失 -----
                 # Classification
                 class_index = 5 + self.nc
                 if self.nc > 1:  # cls loss (only if multiple classes)
@@ -166,7 +181,8 @@ class ComputeLoss:
                     t[range(n), tcls[i]] = self.cp
                     # lcls += self.BCEcls(ps[:, 5:], t)  # BCE
                     lcls += self.BCEcls(ps[:, 5:class_index], t)  # BCE
-                
+
+                # ----- 2.5 计算角度分类损失 -----
                 # theta Classification by Circular Smooth Label
                 t_theta = tgaussian_theta[i].type(ps.dtype) # target theta_gaussian_labels
                 ltheta += self.BCEtheta(ps[:, class_index:], t_theta)
@@ -175,11 +191,13 @@ class ComputeLoss:
                 # with open('targets.txt', 'a') as file:
                 #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
 
+            # ----- 2.6 计算是否存在目标的loss -----
             obji = self.BCEobj(pi[..., 4], tobj)
             lobj += obji * self.balance[i]  # obj loss
             if self.autobalance:
                 self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.detach().item()
 
+        # ----- 3. 对不同loss采用不同系数进行调节 -----
         if self.autobalance:
             self.balance = [x / self.balance[self.ssi] for x in self.balance]
         lbox *= self.hyp['box']
@@ -229,8 +247,10 @@ class ComputeLoss:
             feature_wh[0:2] = torch.tensor(p[i].shape)[[3, 2]]  # xyxy gain=[w_f, h_f]
 
             # Match targets to anchors
+            # yr: 由于targets是640*640尺度下的未归一化坐标，所以这里不需targets * gain
             # t = targets * gain # xywh featuremap pixel
             t = targets.clone() # (na, n_gt_all_batch, c+1)
+            # 将cx,cy,l,s缩放self.stride[i]倍，统一为当前feature map下的尺度
             t[:, :, 2:6] /= self.stride[i] # xyls featuremap pixel
             if nt:
                 # Matches

@@ -765,7 +765,7 @@ def load_mosaic(self, index):
     # Concat/clip labels
     labels4 = np.concatenate(labels4, 0)
     # for x in (labels4[:, 1:], *segments4):
-    for x in (segments4):
+    for x in (segments4):  # 这里是没有起作用的，因为segments为空，所以segments4为空
         np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
     h_filter = 2 * s
     w_filter = 2 * s
