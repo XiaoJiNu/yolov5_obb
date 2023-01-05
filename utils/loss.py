@@ -184,7 +184,7 @@ class ComputeLoss:
 
                 # ----- 2.5 计算角度分类损失 -----
                 # theta Classification by Circular Smooth Label
-                t_theta = tgaussian_theta[i].type(ps.dtype) # target theta_gaussian_labels
+                t_theta = tgaussian_theta[i].type(ps.dtype)  # target theta_gaussian_labels
                 ltheta += self.BCEtheta(ps[:, class_index:], t_theta)
 
                 # Append targets to text file
@@ -200,10 +200,10 @@ class ComputeLoss:
         # ----- 3. 对不同loss采用不同系数进行调节 -----
         if self.autobalance:
             self.balance = [x / self.balance[self.ssi] for x in self.balance]
-        lbox *= self.hyp['box']
-        lobj *= self.hyp['obj']
-        lcls *= self.hyp['cls']
-        ltheta *= self.hyp['theta']
+        lbox *= self.hyp['box']      # 0.05
+        lobj *= self.hyp['obj']      # 1.0
+        lcls *= self.hyp['cls']      # 0.5
+        ltheta *= self.hyp['theta']  # 0.5
         bs = tobj.shape[0]  # batch size
 
         # return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
